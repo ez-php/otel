@@ -46,7 +46,7 @@ final class StreamSpanTransport implements SpanTransportInterface
             ],
         ]);
 
-        $result = @file_get_contents($url, false, $context);
+        $result = self::quietly(static fn (): string|false => file_get_contents($url, false, $context));
 
         if ($result === false) {
             return false;
@@ -55,5 +55,26 @@ final class StreamSpanTransport implements SpanTransportInterface
         $statusLine = http_get_last_response_headers()[0] ?? '';
 
         return preg_match('#^HTTP/\S+\s+2\d\d#', $statusLine) === 1;
+    }
+
+    /**
+     * Run a call whose PHP warning is expected and handled through its return value,
+     * without the `@` operator.
+     *
+     * @template T
+     *
+     * @param callable(): T $fn
+     *
+     * @return T
+     */
+    private static function quietly(callable $fn)
+    {
+        set_error_handler(static fn (): bool => true, E_WARNING);
+
+        try {
+            return $fn();
+        } finally {
+            restore_error_handler();
+        }
     }
 }
