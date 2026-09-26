@@ -1,6 +1,6 @@
 {
     "name": "ez-php/otel",
-    "version": "2.5.1",
+    "version": "2.5.2",
     "description": "OpenTelemetry-style spans and OTLP/HTTP JSON export for the ez-php framework, without a vendor SDK",
     "type": "library",
     "license": "MIT",
