@@ -17,15 +17,15 @@ namespace EzPhp\Otel;
 final class Tracer
 {
     /**
-     * @param SpanExporterInterface $exporter
-     */
-    /**
      * Spans marked active, innermost last.
      *
      * @var list<Span>
      */
     private array $active = [];
 
+    /**
+     * @param SpanExporterInterface $exporter Receives each span once it ends.
+     */
     public function __construct(
         private readonly SpanExporterInterface $exporter,
     ) {
