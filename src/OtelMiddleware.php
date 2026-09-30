@@ -54,6 +54,7 @@ final class OtelMiddleware implements MiddlewareInterface
         $span->setAttribute('http.target', $path);
 
         $status = SpanStatusCode::Ok;
+        $this->tracer->activate($span);
 
         try {
             $response = $next($request);
@@ -69,6 +70,7 @@ final class OtelMiddleware implements MiddlewareInterface
 
             throw $exception;
         } finally {
+            $this->tracer->deactivate($span);
             $this->tracer->endSpan($span, $status);
         }
     }

@@ -28,10 +28,11 @@ docker compose exec app composer full
 Executes in order:
 1. `sync_guidelines.php --check` — fails if any `CLAUDE.md` has drifted from this file
 2. `check_test_classes.php` — fails on a duplicate test class name (all packages share the `Tests\` namespace, so a collision is a fatal error in the aggregated run, not a test failure)
-3. `phpstan analyse` — static analysis, level 9, config: `phpstan.neon`
-4. `php-cs-fixer fix` — auto-fixes style (`@PSR12` + `@PHP83Migration` + strict rules)
+3. `check_module_deps.php` — fails when a package's code imports an ez-php package its `composer.json` does not declare (module `src`: `require`/`suggest`; tests: `require`/`require-dev` and their dependencies), or requires one it never uses
+4. `phpstan analyse` — static analysis, level 9, config: `phpstan.neon`
+5. `php-cs-fixer fix` — auto-fixes style (`@PSR12` + `@PHP83Migration` + strict rules)
    *(Note: `@PHP85Migration` does not exist yet in php-cs-fixer; `@PHP83Migration` is the highest available and is used intentionally even though the project targets PHP 8.5)*
-5. `phpunit` — all tests with coverage
+6. `phpunit` — all tests with coverage
 
 Individual commands when needed:
 ```
@@ -40,6 +41,7 @@ composer cs                  # CS Fixer only
 composer test                # PHPUnit only
 composer guidelines:check    # CLAUDE.md drift only
 composer test-classes:check  # duplicate test class names only
+composer module-deps:check   # undeclared / unused ez-php package dependencies only
 ```
 
 **PHPStan:** never suppress with `@phpstan-ignore-line` — always fix the root cause.
@@ -198,20 +200,22 @@ vendor/bin/docker-init
 
 This copies `Dockerfile`, `docker-compose.yml`, `.env.example`, `start.sh`, and `docker/` into the module, replacing `{{MODULE_NAME}}` placeholders. Existing files are never overwritten.
 
-Pass `--services` to merge MySQL/Redis/Meilisearch service definitions directly into `docker-compose.yml` and uncomment the matching sections in `.env.example`, instead of adapting them by hand afterward:
+Pass `--services` to merge MySQL/Redis/Meilisearch/Memcached/Mailpit service definitions directly into `docker-compose.yml` and uncomment the matching sections in `.env.example`, instead of adapting them by hand afterward:
 
 ```
 vendor/bin/docker-init --services=mysql
 vendor/bin/docker-init --services=redis
 vendor/bin/docker-init --services=meilisearch
 vendor/bin/docker-init --services=mysql,redis
+vendor/bin/docker-init --services=memcached,mailpit
 ```
 
-Pass `--extensions` to merge PHP extension install blocks (apt packages plus `docker-php-ext-install`/`pecl` lines) directly into `docker/app/Dockerfile`, instead of hand-editing it afterward — supported extensions: `bcmath`, `gmp`, `gd`, `imagick`:
+Pass `--extensions` to merge PHP extension install blocks (apt packages plus `docker-php-ext-install`/`pecl` lines) directly into `docker/app/Dockerfile`, instead of hand-editing it afterward — supported extensions: `bcmath`, `gmp`, `gd`, `imagick`, `memcached`, `apcu` (with `apc.enable_cli=1`):
 
 ```
 vendor/bin/docker-init --extensions=gmp,bcmath
 vendor/bin/docker-init --extensions=gd,imagick
+vendor/bin/docker-init --extensions=memcached,apcu
 ```
 
 When run from a module directory inside this monorepo, any requested extension not already present is also merged into the shared root `docker/app/Dockerfile` — the container `composer full` at the root actually runs against, distinct from the module's own standalone image.
@@ -271,11 +275,16 @@ src/
 ├── TraceParent.php               — parse/format the W3C `traceparent` header
 ├── Span.php                      — mutable span: attributes, start/end time, status; end() is idempotent
 ├── SpanExporterInterface.php     — contract: export(list<Span>): bool, must never throw
-├── Tracer.php                    — startSpan() / endSpan(); exports each span when it ends
+├── Tracer.php                    — startSpan() / endSpan(); exports each span when it ends; activate()/deactivate()/activeContext() stack for parenting
 ├── Otel.php                      — static facade around the Tracer singleton
-├── OtelMiddleware.php            — SERVER span per HTTP request; continues `traceparent`
-├── OtelServiceProvider.php       — binds Tracer, picks the exporter from config, wires the facade
+├── OtelMiddleware.php            — SERVER span per HTTP request; continues `traceparent`; active during the request
+├── Instrumentation/
+│   ├── TracingTransport.php      — ez-php/http-client TransportInterface decorator: CLIENT span + outgoing `traceparent` (soft dependency)
+│   └── TracingDatabase.php       — DatabaseInterface decorator: CLIENT span per query/execute, `db.statement`, rows affected
+├── OtelServiceProvider.php       — binds Tracer, picks the exporter from config (OTLP: sampled by `otel.sample_ratio`, batched by `otel.batch_size`), wires the facade
 └── Exporter/
+    ├── BatchingSpanExporter.php   — buffers spans; exports when full, on flush(), and at shutdown (after terminate())
+    ├── TraceIdRatioSampler.php    — keeps a share of traces, decided by the trace ID's low 56 bits (whole traces, deterministic)
     ├── SpanTransportInterface.php — the outbound HTTP POST behind OtlpHttpExporter
     ├── StreamSpanTransport.php    — default transport: PHP stream wrapper, no ext-curl
     ├── OtlpHttpExporter.php       — builds the OTLP/HTTP JSON ExportTraceServiceRequest and POSTs it
@@ -301,6 +310,9 @@ tests/
 
 ## Design decisions and constraints
 
+- **Parenting is explicit: an active-span stack on `Tracer`, not implicit context.** `startSpan()` keeps its semantics (no parent unless one is passed); `activate()`/`deactivate()`/`activeContext()` let `OtelMiddleware` publish its SERVER span so the instrumentation decorators can pick it up as parent. `deactivate()` pops everything above the span, so an exception between activate and deactivate cannot leave the stack skewed. Single-threaded PHP needs no async context propagation; a Fiber-based server would need a per-Fiber tracer.
+- **Batching and sampling are exporter decorators** composed by `OtelServiceProvider` for OTLP only (`TraceIdRatioSampler` → `BatchingSpanExporter` → `OtlpHttpExporter`). The sampler decides from the trace ID's low 56 bits, so a trace is kept or dropped whole and consistently across services using the same ratio (not bit-identical to the OTel spec's 64-bit rule, which PHP's signed ints can't express). Batching flushes when full, on `flush()`, and in a shutdown function — after ez-php's `terminate()` — so a web request exports once; memory/null exporters are never wrapped, keeping tests synchronous.
+- **`TracingTransport`/`TracingDatabase` live here, not in the instrumented modules**, so neither `ez-php/http-client` nor `contracts` gains an otel dependency; `ez-php/http-client` is a `suggest` (+ `require-dev` for tests).
 - **No vendor SDK, no protobuf.** Only the JSON encoding of OTLP/HTTP is implemented, hand-built. Adding another signal or encoding belongs in a follow-up, not a dependency.
 - **Correlation with `ez-php/logging` is by seed, not by import.** This module does not depend on `ez-php/logging`; the application passes a closure returning the correlation ID, and `TraceId::fromSeed()` maps it to a 32-hex trace ID. The `request_id` in `RequestContextMiddleware` is generated inside that middleware and is not exposed on the request, so the closure must read it from wherever the application stores it.
 - **Export is synchronous, one request per ended span.** Simple and explicit; latency is bounded by the transport timeout (5 s default). Buffering is an exporter concern.
@@ -319,6 +331,6 @@ No external infrastructure. The OTLP exporter is tested against a recording `Spa
 ## What does not belong in this module
 
 - **Metrics and logs signals** — Prometheus metrics live in `ez-php/metrics`; logging in `ez-php/logging`.
-- **Auto-instrumentation** of the database, HTTP client, queue, etc. — those modules (or the application) create spans through `Otel::tracer()`.
-- **Sampling, batching, and retry policies** — wrap `SpanExporterInterface`.
+- **Automatic instrumentation** (patching modules or registering decorators behind the application's back) — the application wraps its transport/database in `TracingTransport`/`TracingDatabase` explicitly; queue, cache etc. create spans through `Otel::tracer()`.
+- **Tail sampling, retry policies, multi-exporter fan-out** — wrap `SpanExporterInterface` (head sampling and batching ship as `TraceIdRatioSampler` / `BatchingSpanExporter`).
 - **A collector or backend** — this module only exports.

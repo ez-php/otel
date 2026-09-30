@@ -7,9 +7,11 @@ namespace EzPhp\Otel;
 use EzPhp\Contracts\ConfigInterface;
 use EzPhp\Contracts\ContainerInterface;
 use EzPhp\Contracts\ServiceProvider;
+use EzPhp\Otel\Exporter\BatchingSpanExporter;
 use EzPhp\Otel\Exporter\InMemorySpanExporter;
 use EzPhp\Otel\Exporter\NullSpanExporter;
 use EzPhp\Otel\Exporter\OtlpHttpExporter;
+use EzPhp\Otel\Exporter\TraceIdRatioSampler;
 use Throwable;
 
 /**
@@ -75,9 +77,34 @@ final class OtelServiceProvider extends ServiceProvider
             $serviceNameValue = $config->get('otel.service_name', 'ez-php-app');
             $serviceName = is_string($serviceNameValue) ? $serviceNameValue : 'ez-php-app';
 
-            return new OtlpHttpExporter($endpoint, $serviceName);
+            return self::decorate(new OtlpHttpExporter($endpoint, $serviceName), $config);
         }
 
         return new NullSpanExporter();
+    }
+
+    /**
+     * Sampling (`otel.sample_ratio`, default 1.0) around batching (`otel.batch_size`,
+     * default 512, 0 = off) around the network exporter. Sampling sits outside so a
+     * dropped trace never occupies batch space.
+     *
+     * @param SpanExporterInterface $exporter
+     * @param ConfigInterface       $config
+     *
+     * @return SpanExporterInterface
+     */
+    private static function decorate(SpanExporterInterface $exporter, ConfigInterface $config): SpanExporterInterface
+    {
+        $batchSize = $config->get('otel.batch_size', 512);
+        $batchSize = is_int($batchSize) || (is_string($batchSize) && ctype_digit($batchSize)) ? (int) $batchSize : 512;
+
+        if ($batchSize > 0) {
+            $exporter = new BatchingSpanExporter($exporter, $batchSize);
+        }
+
+        $ratio = $config->get('otel.sample_ratio', 1.0);
+        $ratio = is_numeric($ratio) ? min(1.0, max(0.0, (float) $ratio)) : 1.0;
+
+        return $ratio < 1.0 ? new TraceIdRatioSampler($exporter, $ratio) : $exporter;
     }
 }

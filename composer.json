@@ -1,6 +1,6 @@
 {
     "name": "ez-php/otel",
-    "version": "2.5.4",
+    "version": "2.5.5",
     "description": "OpenTelemetry-style spans and OTLP/HTTP JSON export for the ez-php framework, without a vendor SDK",
     "type": "library",
     "license": "MIT",
@@ -32,10 +32,12 @@
     },
     "suggest": {
         "ez-php/framework": "Needed to bind OtelServiceProvider and register OtelMiddleware in the request pipeline",
+        "ez-php/http-client": "Needed for Instrumentation\\TracingTransport (client spans + traceparent propagation)",
         "ez-php/logging": "Needed to correlate trace IDs with RequestContextMiddleware's request_id via TraceId::fromSeed()"
     },
     "require-dev": {
         "ez-php/docker": "^2.0",
+        "ez-php/http-client": "^2.0",
         "ez-php/framework": "^2.0",
         "phpunit/phpunit": "^13.0",
         "phpstan/phpstan": "^2.1",

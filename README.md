@@ -53,4 +53,34 @@ $tracer->endSpan($span);
 
 ## Limits
 
-Each ended span is exported immediately as one OTLP request — there is no batching, sampler chain, or metrics/logs signal. Wrap `SpanExporterInterface` yourself if you need buffering.
+With the OTLP exporter, spans are batched (`otel.batch_size`, default 512 per request; the remainder
+is sent at the end of the PHP request) and optionally head-sampled (`otel.sample_ratio`, e.g. `0.1` keeps
+10 % of traces — decided per trace ID, so a trace is never cut in half). Both are plain exporter
+decorators you can also compose by hand:
+
+```php
+use EzPhp\Otel\Exporter\BatchingSpanExporter;
+use EzPhp\Otel\Exporter\TraceIdRatioSampler;
+
+$exporter = new TraceIdRatioSampler(new BatchingSpanExporter(new OtlpHttpExporter($url, 'svc')), ratio: 0.1);
+```
+
+### Outgoing HTTP and database spans
+
+Wrap the HTTP client transport and the database connection; their spans become children of the
+request's SERVER span (`OtelMiddleware` marks it active), and outgoing requests carry a `traceparent`
+header so the called service joins the trace:
+
+```php
+use EzPhp\Otel\Instrumentation\TracingDatabase;
+use EzPhp\Otel\Instrumentation\TracingTransport;
+
+$client = new HttpClient(new TracingTransport(new CurlTransport(), $tracer));   // requires ez-php/http-client
+$db = new TracingDatabase($database, $tracer);                                  // any DatabaseInterface
+```
+
+Database spans carry the SQL statement (`db.statement`), never the bindings. Streaming HTTP requests are
+not traced.
+
+A long-running worker should call `$batching->flush()` after each job. There is no tail sampling and no
+metrics/logs signal.

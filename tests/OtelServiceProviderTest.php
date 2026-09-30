@@ -4,8 +4,13 @@ declare(strict_types=1);
 
 namespace Tests;
 
+use EzPhp\Otel\Exporter\BatchingSpanExporter;
+use EzPhp\Otel\Exporter\InMemorySpanExporter;
+use EzPhp\Otel\Exporter\OtlpHttpExporter;
+use EzPhp\Otel\Exporter\TraceIdRatioSampler;
 use EzPhp\Otel\Otel;
 use EzPhp\Otel\OtelServiceProvider;
+use EzPhp\Otel\SpanExporterInterface;
 use EzPhp\Otel\Tracer;
 use RuntimeException;
 use Tests\Support\FakeConfig;
@@ -61,5 +66,48 @@ final class OtelServiceProviderTest extends TestCase
 
             self::assertInstanceOf(Tracer::class, $container->make(Tracer::class));
         }
+    }
+
+    public function testOtlpIsBatchedByDefault(): void
+    {
+        $exporter = $this->exporterFor(['otel.endpoint' => 'http://127.0.0.1:1/v1/traces']);
+
+        self::assertInstanceOf(BatchingSpanExporter::class, $exporter);
+    }
+
+    public function testBatchSizeZeroDisablesBatching(): void
+    {
+        $exporter = $this->exporterFor(['otel.endpoint' => 'http://127.0.0.1:1/v1/traces', 'otel.batch_size' => 0]);
+
+        self::assertInstanceOf(OtlpHttpExporter::class, $exporter);
+    }
+
+    public function testSampleRatioBelowOneWrapsTheExporterInASampler(): void
+    {
+        $exporter = $this->exporterFor(['otel.endpoint' => 'http://127.0.0.1:1/v1/traces', 'otel.sample_ratio' => '0.25']);
+
+        self::assertInstanceOf(TraceIdRatioSampler::class, $exporter);
+    }
+
+    public function testMemoryModeIsNeitherBatchedNorSampled(): void
+    {
+        $exporter = $this->exporterFor(['otel.exporter' => 'memory', 'otel.sample_ratio' => 0.1, 'otel.batch_size' => 10]);
+
+        self::assertInstanceOf(InMemorySpanExporter::class, $exporter);
+    }
+
+    /**
+     * @param array<string, mixed> $config
+     */
+    private function exporterFor(array $config): SpanExporterInterface
+    {
+        $container = new FakeContainer(new FakeConfig($config));
+        (new OtelServiceProvider($container))->register();
+        $tracer = $container->make(Tracer::class);
+
+        $exporter = (new \ReflectionProperty(Tracer::class, 'exporter'))->getValue($tracer);
+        self::assertInstanceOf(SpanExporterInterface::class, $exporter);
+
+        return $exporter;
     }
 }
