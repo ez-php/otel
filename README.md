@@ -82,5 +82,15 @@ $db = new TracingDatabase($database, $tracer);                                  
 Database spans carry the SQL statement (`db.statement`), never the bindings. Streaming HTTP requests are
 not traced.
 
-A long-running worker should call `$batching->flush()` after each job. There is no tail sampling and no
-metrics/logs signal.
+To find the log lines of a trace, wrap the `ez-php/logging` logger (requires `ez-php/logging`); every
+record written while a span is active gets its `trace_id` and `span_id` in the context:
+
+```php
+use EzPhp\Otel\Instrumentation\TraceContextLogger;
+
+$logger = new TraceContextLogger($logger, $tracer);
+$logger->info('Order placed', ['order' => 7]); // context: order, trace_id, span_id
+```
+
+A long-running worker should call `$batching->flush()` after each job. There is no tail sampling, no metrics
+signal and no OTLP log export (logs only carry the trace context).

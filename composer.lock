@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "ad07bc676b23cb2bdd7651e501ab9e42",
+    "content-hash": "20559f42b4b55e46013f4eb0c559d1b6",
     "packages": [
         {
             "name": "ez-php/contracts",
@@ -864,6 +864,65 @@
                 "source": "https://github.com/ez-php/i18n"
             },
             "time": "2026-10-16T15:43:50+00:00"
+        },
+        {
+            "name": "ez-php/logging",
+            "version": "2.5.8",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/ez-php/logging.git",
+                "reference": "f461eaa2ec6d0da27b2fdbb39ad52998fc433c5d"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/ez-php/logging/zipball/f461eaa2ec6d0da27b2fdbb39ad52998fc433c5d",
+                "reference": "f461eaa2ec6d0da27b2fdbb39ad52998fc433c5d",
+                "shasum": ""
+            },
+            "require": {
+                "ez-php/contracts": "^2.0",
+                "ez-php/http": "^2.0",
+                "php": "^8.5"
+            },
+            "require-dev": {
+                "ez-php/docker": "^2.0",
+                "ez-php/testing-application": "^2.0",
+                "friendsofphp/php-cs-fixer": "^3.94",
+                "phpstan/phpstan": "^2.1",
+                "phpstan/phpstan-deprecation-rules": "^2.0",
+                "phpstan/phpstan-strict-rules": "^2.0",
+                "phpunit/phpunit": "^13.0"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "EzPhp\\Logging\\": "src/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Andreas Uretschnig",
+                    "email": "andreas.uretschnig@gmail.com"
+                }
+            ],
+            "description": "Logging module for the ez-php framework — structured logging with file, stdout, and null drivers",
+            "homepage": "https://github.com/ez-php/logging",
+            "keywords": [
+                "ez-php",
+                "framework",
+                "logger",
+                "logging",
+                "php"
+            ],
+            "support": {
+                "issues": "https://github.com/ez-php/logging/issues",
+                "source": "https://github.com/ez-php/logging"
+            },
+            "time": "2026-10-16T15:43:40+00:00"
         },
         {
             "name": "ez-php/validation",

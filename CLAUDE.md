@@ -281,7 +281,8 @@ src/
 ├── OtelMiddleware.php            — SERVER span per HTTP request; continues `traceparent`; active during the request
 ├── Instrumentation/
 │   ├── TracingTransport.php      — ez-php/http-client TransportInterface decorator: CLIENT span + outgoing `traceparent` (soft dependency)
-│   └── TracingDatabase.php       — DatabaseInterface decorator: CLIENT span per query/execute, `db.statement`, rows affected
+│   ├── TracingDatabase.php       — DatabaseInterface decorator: CLIENT span per query/execute, `db.statement`, rows affected
+│   └── TraceContextLogger.php    — ez-php/logging LoggerInterface decorator: adds the active span's `trace_id`/`span_id` to every record's context
 ├── OtelServiceProvider.php       — binds Tracer, picks the exporter from config (OTLP: sampled by `otel.sample_ratio`, batched by `otel.batch_size`), wires the facade
 └── Exporter/
     ├── BatchingSpanExporter.php   — buffers spans; exports when full, on flush(), and at shutdown (after terminate())
@@ -315,7 +316,8 @@ tests/
 - **Batching and sampling are exporter decorators** composed by `OtelServiceProvider` for OTLP only (`TraceIdRatioSampler` → `BatchingSpanExporter` → `OtlpHttpExporter`). The sampler decides from the trace ID's low 56 bits, so a trace is kept or dropped whole and consistently across services using the same ratio (not bit-identical to the OTel spec's 64-bit rule, which PHP's signed ints can't express). Batching flushes when full, on `flush()`, and in a shutdown function — after ez-php's `terminate()` — so a web request exports once; memory/null exporters are never wrapped, keeping tests synchronous.
 - **`TracingTransport`/`TracingDatabase` live here, not in the instrumented modules**, so neither `ez-php/http-client` nor `contracts` gains an otel dependency; `ez-php/http-client` is a `suggest` (+ `require-dev` for tests).
 - **No vendor SDK, no protobuf.** Only the JSON encoding of OTLP/HTTP is implemented, hand-built. Adding another signal or encoding belongs in a follow-up, not a dependency.
-- **Correlation with `ez-php/logging` is by seed, not by import.** This module does not depend on `ez-php/logging`; the application passes a closure returning the correlation ID, and `TraceId::fromSeed()` maps it to a 32-hex trace ID. The `request_id` in `RequestContextMiddleware` is generated inside that middleware and is not exposed on the request, so the closure must read it from wherever the application stores it.
+- **Log ↔ span correlation goes both ways, both opt-in.** `TraceContextLogger` (`ez-php/logging` is a `suggest` + `require-dev`, autoloaded only when referenced) stamps `trace_id`/`span_id` of `Tracer::activeContext()` onto every log record — explicit keys of the caller win, and outside a span the context is untouched. The application wraps its logger explicitly, like `TracingTransport`/`TracingDatabase`; the logs themselves are still written by `ez-php/logging`'s drivers, there is no OTLP log export.
+- **Trace IDs from a log correlation ID are by seed, not by import.** The application passes a closure returning the correlation ID, and `TraceId::fromSeed()` maps it to a 32-hex trace ID. The `request_id` in `RequestContextMiddleware` is generated inside that middleware and is not exposed on the request, so the closure must read it from wherever the application stores it.
 - **Export is synchronous, one request per ended span.** Simple and explicit; latency is bounded by the transport timeout (5 s default). Buffering is an exporter concern.
 - **Exporters never throw.** A tracing failure must not fail the request being traced.
 - **The `Otel` facade holds static state.** Intentional, documented, and matches `Health`/`Log`; tests call `Otel::resetTracer()`.
@@ -331,7 +333,7 @@ No external infrastructure. The OTLP exporter is tested against a recording `Spa
 
 ## What does not belong in this module
 
-- **Metrics and logs signals** — Prometheus metrics live in `ez-php/metrics`; logging in `ez-php/logging`.
-- **Automatic instrumentation** (patching modules or registering decorators behind the application's back) — the application wraps its transport/database in `TracingTransport`/`TracingDatabase` explicitly; queue, cache etc. create spans through `Otel::tracer()`.
+- **Metrics and logs signals** — Prometheus metrics live in `ez-php/metrics`; logging in `ez-php/logging` (this module only adds trace context to records via `TraceContextLogger`, no OTLP log export).
+- **Automatic instrumentation** (patching modules or registering decorators behind the application's back) — the application wraps its transport/database/logger in `TracingTransport`/`TracingDatabase`/`TraceContextLogger` explicitly; queue, cache etc. create spans through `Otel::tracer()`.
 - **Tail sampling, retry policies, multi-exporter fan-out** — wrap `SpanExporterInterface` (head sampling and batching ship as `TraceIdRatioSampler` / `BatchingSpanExporter`).
 - **A collector or backend** — this module only exports.
