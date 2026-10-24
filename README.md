@@ -92,5 +92,26 @@ $logger = new TraceContextLogger($logger, $tracer);
 $logger->info('Order placed', ['order' => 7]); // context: order, trace_id, span_id
 ```
 
+### Queued jobs
+
+Wrap the queue driver so a job's spans join the trace of the request that pushed it. `push()` stamps the
+active span's `traceparent` onto the stored job (as a `TracedJob` envelope); `pop()` unwraps it, starts a
+CONSUMER span (`<queue> process`) parented to that context and makes it active while the Worker runs the
+original job. The span ends at the next queue call — `Error` when the job is retried or fails for good:
+
+```php
+use EzPhp\Otel\Instrumentation\TracingQueue;
+
+$queue = new TracingQueue($driver, $tracer);          // any QueueInterface, e.g. ez-php/queue's DatabaseDriver
+$queue = new UniqueQueue($queue, $locks);             // optional: keep UniqueQueue *outside*
+$worker = new Worker($queue);
+$worker->work('default', maxJobs: 100);
+$queue->finish();                                     // end the last job's span
+```
+
+Use the same decorated queue for pushing (web) and popping (worker). `TracingQueue` does not implement
+`FailedJobRepositoryInterface` — resolve `queue:failed` against the driver. Jobs implementing ez-php/queue's
+`JsonPayloadJobInterface` keep their JSON storage and are not wrapped, so their span starts a new trace.
+
 A long-running worker should call `$batching->flush()` after each job. There is no tail sampling, no metrics
 signal and no OTLP log export (logs only carry the trace context).
