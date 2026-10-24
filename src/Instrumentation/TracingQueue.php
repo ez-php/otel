@@ -29,8 +29,8 @@ use Throwable;
  *
  * The Worker runs the job after pop() returns, so the consumer span ends at the
  * next queue call: the following pop() (OK), failed() for that job (Error), or a
- * push() of a retry — same class and attempt count, i.e. handle() threw — (Error,
- * `messaging.retry`). finish() ends it explicitly, e.g. after the worker loop; the
+ * push() of a retry — the same object, or a copy with the same class and attempt
+ * count, i.e. handle() threw — (Error, `messaging.retry`). finish() ends it explicitly, e.g. after the worker loop; the
  * destructor does the same as a fallback.
  *
  * Only JobInterface/QueueInterface are needed; the JsonPayloadJobInterface check
@@ -160,9 +160,10 @@ final class TracingQueue implements QueueInterface
     }
 
     /**
-     * The Worker re-pushes a failed job as a copy with the same attempt count
+     * The Worker re-pushes a failed `Job` as a copy with the same attempt count
      * (a release gives the attempt back, a chained job is a different object
-     * that has not run yet).
+     * that has not run yet), and a failed plain JobInterface job as the very
+     * same object.
      *
      * @param JobInterface $job
      *
@@ -170,10 +171,11 @@ final class TracingQueue implements QueueInterface
      */
     private function isRetryOfCurrentJob(JobInterface $job): bool
     {
-        return $this->job !== null
-            && $job !== $this->job
-            && $job::class === $this->job::class
-            && $job->getAttempts() === $this->job->getAttempts()
-            && $job->getAttempts() > 0;
+        if ($this->job === null || $job->getAttempts() < 1) {
+            return false;
+        }
+
+        return $job === $this->job
+            || ($job::class === $this->job::class && $job->getAttempts() === $this->job->getAttempts());
     }
 }

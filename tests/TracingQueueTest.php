@@ -22,6 +22,7 @@ use EzPhp\Queue\Worker;
 use PDO;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\UsesClass;
+use Tests\Support\OtelQueueBareJob;
 use Tests\Support\OtelQueueJsonJob;
 use Tests\Support\OtelQueueProbeJob;
 
@@ -157,6 +158,26 @@ final class TracingQueueTest extends TestCase
         // The retry was pushed while attempt 1's span was active, so attempt 2 is its child.
         self::assertSame($first->spanId(), $second->parentSpanId());
         self::assertSame($root->traceId(), $second->traceId());
+    }
+
+    public function testRetryOfABareJobInterfaceJobEndsTheConsumerSpanWithError(): void
+    {
+        $queue = $this->databaseQueue();
+        $root = $this->tracer->startSpan('producer');
+        $this->tracer->activate($root);
+        $queue->push(new OtelQueueBareJob());
+        $this->tracer->deactivate($root);
+
+        $worker = new Worker($queue);
+        $worker->runNextJob(); // attempt 1 → re-pushed as the same object
+        $worker->runNextJob(); // attempt 2 → failed()
+
+        [$first, $second] = $this->consumerSpans();
+        self::assertSame(SpanStatusCode::Error, $first->status());
+        self::assertTrue($first->attributes()['messaging.retry']);
+        self::assertSame(SpanStatusCode::Error, $second->status());
+        self::assertSame('bare boom', $second->attributes()['exception.message']);
+        self::assertSame($first->spanId(), $second->parentSpanId());
     }
 
     public function testNextPopEndsThePreviousSpanAndFinishIsIdempotent(): void
