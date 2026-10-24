@@ -295,9 +295,25 @@ src/
     └── NullSpanExporter.php       — discards spans (default when no endpoint is configured)
 
 tests/
-├── TestCase.php
-├── Support/                      — FakeConfig, FakeContainer (same stubs as sibling modules)
-└── one *Test.php per class above (SpanExporterTest covers both simple exporters)
+├── TestCase.php                       — base test case for plain unit tests
+├── Support/
+│   ├── FakeConfig.php                 — minimal ConfigInterface stub for service provider tests
+│   └── FakeContainer.php              — minimal ContainerInterface stub for service provider tests
+├── TraceIdTest.php                    — TraceId generate / fromSeed / isValid
+├── SpanIdTest.php                     — SpanId generate / isValid
+├── SpanContextTest.php                — SpanContext value object
+├── TraceParentTest.php                — W3C traceparent parse/format
+├── SpanTest.php                       — attributes, timing, status, idempotent end()
+├── TracerTest.php                     — startSpan() parenting rules; endSpan() exports
+├── OtelTest.php                       — facade: throws before set, setTracer(), resetTracer()
+├── OtelMiddlewareTest.php             — SERVER span attributes, error status, traceparent continuation, seed resolver
+├── ActiveSpanAndDecoratorsTest.php    — Tracer activate()/deactivate() stack, OtelMiddleware activation, TracingTransport, TracingDatabase
+├── OtelTraceContextLoggerTest.php     — TraceContextLogger adds trace_id/span_id to log context
+├── OtelServiceProviderTest.php        — Tracer binding, facade wiring, exporter selection, batching and sampling defaults
+├── BatchingAndSamplingTest.php        — BatchingSpanExporter and TraceIdRatioSampler
+├── OtlpHttpExporterTest.php           — OTLP JSON payload, root spans, transport failure → false
+├── StreamSpanTransportTest.php        — unreachable endpoint → false
+└── SpanExporterTest.php               — InMemorySpanExporter and NullSpanExporter
 ```
 
 ---
