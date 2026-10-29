@@ -357,7 +357,7 @@ No external infrastructure. The OTLP exporter is tested against a recording `Spa
 
 ## What does not belong in this module
 
-- **Metrics and logs signals** — Prometheus metrics live in `ez-php/metrics`; logging in `ez-php/logging` (this module only adds trace context to records via `TraceContextLogger`, no OTLP log export).
+- **Metrics and logs signals** — Prometheus metrics live in `ez-php/metrics` (OTLP export: `ez-php/metrics-otlp`); logging in `ez-php/logging` (this module only adds trace context to records via `TraceContextLogger`, no OTLP log export).
 - **Automatic instrumentation** (patching modules or registering decorators behind the application's back) — the application wraps its transport/database/logger/queue in `TracingTransport`/`TracingDatabase`/`TraceContextLogger`/`TracingQueue` explicitly; cache etc. create spans through `Otel::tracer()`.
 - **Tail sampling, retry policies, multi-exporter fan-out** — wrap `SpanExporterInterface` (head sampling and batching ship as `TraceIdRatioSampler` / `BatchingSpanExporter`).
 - **A collector or backend** — this module only exports.
