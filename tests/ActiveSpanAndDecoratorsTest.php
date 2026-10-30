@@ -8,6 +8,7 @@ use EzPhp\Contracts\DatabaseInterface;
 use EzPhp\Http\Request;
 use EzPhp\Http\Response;
 use EzPhp\HttpClient\FakeTransport;
+use EzPhp\HttpClient\HttpClient;
 use EzPhp\HttpClient\HttpClientException;
 use EzPhp\HttpClient\HttpResponse;
 use EzPhp\Otel\Exporter\InMemorySpanExporter;
@@ -157,6 +158,16 @@ final class ActiveSpanAndDecoratorsTest extends TestCase
 
         self::assertSame("00-{$client->traceId()}-{$client->spanId()}-01", $sent['traceparent']);
         self::assertArrayNotHasKey('Traceparent', $sent);
+    }
+
+    public function test_transport_passes_the_redirect_opt_out_to_the_wrapped_transport(): void
+    {
+        $inner = new FakeTransport(['*' => new HttpResponse(200, '')]);
+
+        (new HttpClient(new TracingTransport($inner, $this->tracer)))
+            ->post('https://x.test/')->withoutRedirects()->send();
+
+        $this->assertFalse($inner->getRecorded()[0]['followRedirects']);
     }
 
     public function test_transport_marks_5xx_as_error(): void

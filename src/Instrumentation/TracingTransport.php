@@ -6,6 +6,7 @@ namespace EzPhp\Otel\Instrumentation;
 
 use EzPhp\HttpClient\HttpClientException;
 use EzPhp\HttpClient\HttpResponse;
+use EzPhp\HttpClient\RedirectControlTransportInterface;
 use EzPhp\HttpClient\TransportInterface;
 use EzPhp\Otel\SpanContext;
 use EzPhp\Otel\SpanKind;
@@ -28,7 +29,7 @@ use EzPhp\Otel\Tracer;
  *
  * @package EzPhp\Otel\Instrumentation
  */
-final readonly class TracingTransport implements TransportInterface
+final readonly class TracingTransport implements TransportInterface, RedirectControlTransportInterface
 {
     /**
      * @param TransportInterface $inner
@@ -38,6 +39,21 @@ final readonly class TracingTransport implements TransportInterface
         private TransportInterface $inner,
         private Tracer $tracer,
     ) {
+    }
+
+    /**
+     * Return a decorator whose wrapped transport does not follow redirects.
+     *
+     * @return TransportInterface
+     * @throws HttpClientException When the wrapped transport cannot disable redirects.
+     */
+    public function withoutRedirects(): TransportInterface
+    {
+        if (!$this->inner instanceof RedirectControlTransportInterface) {
+            throw new HttpClientException(sprintf('Transport %s cannot disable redirects.', $this->inner::class));
+        }
+
+        return new self($this->inner->withoutRedirects(), $this->tracer);
     }
 
     /**
